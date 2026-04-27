@@ -185,14 +185,7 @@ export const MOCK_DEFAULT_CONFIG: CategoryConfig = {
   categoryId: 'cat-shirts-001',
   categoryName: 'Shirts',
   filterRuleGroup: {
-    rules: [
-      {
-        id: 'r1',
-        field: 'category',
-        operator: 'equals',
-        value: 'Shirts',
-      },
-    ],
+    rules: [],
     logic: 'AND',
   },
   bottomRuleGroup: {
@@ -213,67 +206,7 @@ export const MOCK_DEFAULT_CONFIG: CategoryConfig = {
       pinnedAt: new Date(),
     },
   ],
-  segments: [
-    {
-      id: 's1',
-      name: 'Premium Blue',
-      priority: 1,
-      size: 20,
-      filters: {
-        rules: [
-          {
-            id: 'sr1',
-            field: 'color',
-            operator: 'equals',
-            value: 'Blue',
-          },
-          {
-            id: 'sr2',
-            field: 'price',
-            operator: 'greaterThanOrEqual',
-            value: 40,
-          },
-        ],
-        logic: 'AND',
-      },
-      sorters: [
-        {
-          id: 'sort1',
-          field: 'bestSellers',
-          direction: 'desc',
-        },
-        {
-          id: 'sort2',
-          field: 'inventoryPercentage',
-          direction: 'desc',
-        },
-      ],
-    },
-    {
-      id: 's2',
-      name: 'Budget Friendly',
-      priority: 2,
-      size: 30,
-      filters: {
-        rules: [
-          {
-            id: 'sr3',
-            field: 'price',
-            operator: 'lessThan',
-            value: 30,
-          },
-        ],
-        logic: 'AND',
-      },
-      sorters: [
-        {
-          id: 'sort3',
-          field: 'inventoryPercentage',
-          direction: 'desc',
-        },
-      ],
-    },
-  ],
+  segments: [],
   maxProducts: 100,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -332,7 +265,7 @@ export function formatDate(date: Date | string): string {
 }
 
 export function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`;
+  return price.toFixed(2);
 }
 
 export function formatPercentage(value: number): string {
@@ -344,9 +277,11 @@ export function formatPercentage(value: number): string {
 // ============================================================================
 
 export const SAMPLE_CATEGORIES = [
-  { id: 'cat-shirts', name: 'Shirts' },
-  { id: 'cat-pants', name: 'Pants' },
-  { id: 'cat-dresses', name: 'Dresses' },
-  { id: 'cat-shoes', name: 'Shoes' },
+  { id: 'cat-fashion', name: 'Fashion' },
+  { id: 'cat-shirts', name: 'Shirts', parentId: 'cat-fashion' },
+  { id: 'cat-pants', name: 'Pants', parentId: 'cat-fashion' },
+  { id: 'cat-dresses', name: 'Dresses', parentId: 'cat-fashion' },
+  { id: 'cat-footwear', name: 'Footwear' },
+  { id: 'cat-shoes', name: 'Shoes', parentId: 'cat-footwear' },
   { id: 'cat-accessories', name: 'Accessories' },
 ];

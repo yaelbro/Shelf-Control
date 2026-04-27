@@ -16,23 +16,30 @@ export interface Product {
   inventory: number;
   inventoryPercentage: number; // 0-100
   price: number;
-  color?: string;
-  size?: string;
+  priceBeforeDiscount?: number;
+  priceMax?: number;
+  color?: string | string[];
+  size?: string | string[];
   publishDate: Date;
   bestSellers?: number; // Sales count over time range
   inStock: boolean;
-  attributes: Record<string, string | number | boolean>;
+  tagNames?: string[]; // Resolved display names of Wix tags
+  attributes: Record<string, string | number | boolean | Array<string | number | boolean>>;
 }
 
 // ============================================================================
 // RULES & FILTERING
 // ============================================================================
 
-export type FilterOperator = 
+export type FilterOperator =
   | 'equals' 
   | 'notEquals' 
   | 'contains' 
   | 'notContains' 
+  | 'startsWith'
+  | 'notStartsWith'
+  | 'endsWith'
+  | 'notEndsWith'
   | 'oneOf' 
   | 'greaterThan' 
   | 'lessThan'
@@ -43,7 +50,7 @@ export interface Rule {
   id: string;
   field: string; // e.g., "category", "color", "inventoryPercentage"
   operator: FilterOperator;
-  value: string | number | string[];
+  value: string | number | boolean | Array<string | number | boolean>;
   isExclusion?: boolean; // true for negative conditions
 }
 
@@ -171,33 +178,27 @@ export interface FieldDefinition {
 }
 
 export const AVAILABLE_FIELDS: FieldDefinition[] = [
-  { name: 'category', label: 'Category', type: 'string' },
-  { name: 'color', label: 'Color', type: 'select', options: [
-    { label: 'Red', value: 'Red' },
-    { label: 'Blue', value: 'Blue' },
-    { label: 'Green', value: 'Green' },
-    { label: 'Black', value: 'Black' },
-    { label: 'White', value: 'White' },
-  ]},
-  { name: 'size', label: 'Size', type: 'select', options: [
-    { label: 'XS', value: 'XS' },
-    { label: 'S', value: 'S' },
-    { label: 'M', value: 'M' },
-    { label: 'L', value: 'L' },
-    { label: 'XL', value: 'XL' },
-    { label: 'XXL', value: 'XXL' },
-  ]},
+  { name: 'name', label: 'Product Name', type: 'string', placeholder: 'e.g. Running Shoe' },
+  { name: 'sku', label: 'Handle', type: 'string', placeholder: 'e.g. my-product-handle' },
+  { name: 'variantId', label: 'Variant ID', type: 'string' },
+  { name: 'color', label: 'Color', type: 'select' },
+  { name: 'size', label: 'Size', type: 'select' },
+  { name: 'inventory', label: 'Inventory Units', type: 'number' },
+  { name: 'variantAvailabilityPercentage', label: 'Variant Availability %', type: 'number' },
   { name: 'inventoryPercentage', label: 'Stock Level (%)', type: 'number' },
   { name: 'price', label: 'Price', type: 'number' },
-  { name: 'publishDate', label: 'Publish Date', type: 'date' },
+  { name: 'publishDate', label: 'New Products (Date)', type: 'date' },
+  { name: 'daysSincePublish', label: 'Uploaded In Last (Days)', type: 'number', placeholder: 'e.g. 30' },
   { name: 'bestSellers', label: 'Best Sellers', type: 'number' },
   { name: 'inStock', label: 'In Stock', type: 'boolean' },
+  { name: 'visible', label: 'Visible in Store', type: 'boolean' },
+  { name: 'source', label: 'Catalog Source', type: 'select' },
 ];
 
 export const AVAILABLE_OPERATORS: Record<string, FilterOperator[]> = {
-  string: ['equals', 'notEquals', 'contains', 'notContains'],
+  string: ['contains', 'notContains', 'startsWith', 'notStartsWith', 'endsWith', 'notEndsWith', 'equals', 'notEquals'],
   number: ['equals', 'notEquals', 'greaterThan', 'lessThan', 'greaterThanOrEqual', 'lessThanOrEqual'],
   select: ['equals', 'notEquals', 'oneOf'],
-  date: ['equals', 'greaterThan', 'lessThan'],
+  date: ['equals', 'greaterThan', 'lessThan', 'greaterThanOrEqual', 'lessThanOrEqual'],
   boolean: ['equals', 'notEquals'],
 };

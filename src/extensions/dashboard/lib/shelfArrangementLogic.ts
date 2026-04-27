@@ -28,25 +28,53 @@ export function evaluateRule(product: Product, rule: Rule): boolean {
     return false;
   }
 
+  const normalizedFieldValue = normalizeComparableValue(fieldValue);
+  const normalizedRuleValue = Array.isArray(rule.value)
+    ? rule.value.map(value => normalizeComparableValue(value))
+    : normalizeComparableValue(rule.value);
+  const normalizedFieldValues = Array.isArray(normalizedFieldValue)
+    ? normalizedFieldValue
+    : [normalizedFieldValue];
+
   switch (rule.operator) {
     case 'equals':
-      return fieldValue === rule.value;
+      return normalizedFieldValues.some(value => value === normalizedRuleValue);
     case 'notEquals':
-      return fieldValue !== rule.value;
+      return normalizedFieldValues.every(value => value !== normalizedRuleValue);
     case 'contains':
-      return String(fieldValue).toLowerCase().includes(String(rule.value).toLowerCase());
+      return normalizedFieldValues.some(value => (
+        String(value).toLowerCase().includes(String(rule.value).toLowerCase())
+      ));
     case 'notContains':
-      return !String(fieldValue).toLowerCase().includes(String(rule.value).toLowerCase());
+      return normalizedFieldValues.every(value => (
+        !String(value).toLowerCase().includes(String(rule.value).toLowerCase())
+      ));
+    case 'startsWith':
+      return normalizedFieldValues.some(value => (
+        String(value).toLowerCase().startsWith(String(rule.value).toLowerCase())
+      ));
+    case 'notStartsWith':
+      return normalizedFieldValues.every(value => (
+        !String(value).toLowerCase().startsWith(String(rule.value).toLowerCase())
+      ));
+    case 'endsWith':
+      return normalizedFieldValues.some(value => (
+        String(value).toLowerCase().endsWith(String(rule.value).toLowerCase())
+      ));
+    case 'notEndsWith':
+      return normalizedFieldValues.every(value => (
+        !String(value).toLowerCase().endsWith(String(rule.value).toLowerCase())
+      ));
     case 'oneOf':
-      return Array.isArray(rule.value) && rule.value.includes(fieldValue);
+      return Array.isArray(normalizedRuleValue) && normalizedFieldValues.some(value => normalizedRuleValue.includes(value));
     case 'greaterThan':
-      return Number(fieldValue) > Number(rule.value);
+      return normalizedFieldValues.some(value => Number(value) > Number(normalizedRuleValue));
     case 'lessThan':
-      return Number(fieldValue) < Number(rule.value);
+      return normalizedFieldValues.some(value => Number(value) < Number(normalizedRuleValue));
     case 'greaterThanOrEqual':
-      return Number(fieldValue) >= Number(rule.value);
+      return normalizedFieldValues.some(value => Number(value) >= Number(normalizedRuleValue));
     case 'lessThanOrEqual':
-      return Number(fieldValue) <= Number(rule.value);
+      return normalizedFieldValues.some(value => Number(value) <= Number(normalizedRuleValue));
     default:
       return false;
   }
@@ -59,10 +87,69 @@ function getFieldValue(product: Product, field: string): any {
   if (field === 'inStock') {
     return product.inStock;
   }
+  if (field === 'daysSincePublish') {
+    const publishDateMs = product.publishDate instanceof Date
+      ? product.publishDate.getTime()
+      : new Date(product.publishDate).getTime();
+
+    return Number.isFinite(publishDateMs)
+      ? Math.max(0, Math.floor((Date.now() - publishDateMs) / (1000 * 60 * 60 * 24)))
+      : Number.MAX_SAFE_INTEGER;
+  }
   if (field in product) {
     return (product as any)[field];
   }
   return product.attributes[field];
+}
+
+function normalizeComparableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeComparableValue(item));
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const lower = trimmed.toLowerCase();
+
+    if (lower === 'true') {
+      return true;
+    }
+
+    if (lower === 'false') {
+      return false;
+    }
+
+    const asNumber = Number(trimmed);
+    if (trimmed !== '' && !Number.isNaN(asNumber)) {
+      return asNumber;
+    }
+
+    // Check if it's a date in YYYY-MM-DD format
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      // Parse date string as local date (start of day)
+      const dateParts = trimmed.split('T')[0].split('-');
+      if (dateParts.length === 3) {
+        const year = parseInt(dateParts[0], 10);
+        const month = parseInt(dateParts[1], 10) - 1; // Month is 0-indexed
+        const day = parseInt(dateParts[2], 10);
+        const dateObj = new Date(year, month, day, 0, 0, 0, 0);
+        return dateObj.getTime();
+      }
+    }
+
+    const asDate = Date.parse(trimmed);
+    if (!Number.isNaN(asDate)) {
+      return asDate;
+    }
+
+    return lower;
+  }
+
+  return value;
 }
 
 /**
@@ -92,18 +179,11 @@ export function evaluateRuleGroup(product: Product, group: RuleGroup): boolean {
 // ============================================================================
 
 /**
- * Applies filtering rules to products
- * Excludes out-of-stock products automatically
+ * Applies filtering rules to products.
+ * Does NOT automatically exclude out-of-stock products — add an inStock rule if needed.
  */
 export function applyFilters(products: Product[], ruleGroup: RuleGroup): Product[] {
-  return products.filter(product => {
-    // Automatically exclude out-of-stock products
-    if (!product.inStock) {
-      return false;
-    }
-    // Apply rule group
-    return evaluateRuleGroup(product, ruleGroup);
-  });
+  return products.filter(product => evaluateRuleGroup(product, ruleGroup));
 }
 
 // ============================================================================
@@ -267,10 +347,9 @@ export function applyBottomPush(
 // ============================================================================
 
 /**
- * Builds the final arranged product list
- * 1. Pinned products at top (sorted by priority)
- * 2. Segmented products (up to segment size, sorted within segment)
- * 3. Unassigned products (if any)
+ * Builds the final arranged product list.
+ * Pinned products are placed at their absolute manualOrder position in the list.
+ * Non-pinned products fill the remaining slots in segment order.
  */
 export function buildFinalList(
   filteredProducts: Product[],
@@ -282,59 +361,62 @@ export function buildFinalList(
   const errors: string[] = [];
 
   try {
-    // Step 1: Apply pinning metadata
-    let productsWithMetadata = applyPinning(filteredProducts, pinnedProducts);
+    // Step 1: Apply pinning metadata (isPinned flags)
+    const productsWithMetadata = applyPinning(filteredProducts, pinnedProducts);
 
-    // Step 2: Get pinned products at top
-    const pinnedOrdered = getPinnedProductsOrdered(productsWithMetadata);
-    const arraggedList: ProductWithMetadata[] = [];
-    let currentIndex = 0;
-
-    // Add pinned products
-    pinnedOrdered.forEach((product, idx) => {
-      if (currentIndex < maxProducts) {
-        arraggedList.push({ ...product, sortOrder: currentIndex });
-        currentIndex++;
-      }
-    });
-
-    // Step 3: Get non-pinned products and assign to segments
+    // Step 2: Build ordered non-pinned list (segments + sorting)
     const nonPinned = getNonPinnedProducts(productsWithMetadata);
     const segmentedProducts = applyBottomPush(assignSegments(nonPinned, segments), bottomRuleGroup);
-
-    // Step 4: Group by segment
     const productsBySegment = groupProductsBySegment(segmentedProducts);
-
-    // Step 5: Sort each segment and add products
     const sortedSegments = [...segments].sort((a, b) => a.priority - b.priority);
 
+    const nonPinnedOrdered: ProductWithMetadata[] = [];
+    const globalBottom: ProductWithMetadata[] = [];
     for (const segment of sortedSegments) {
       const segmentProducts = productsBySegment.get(segment.id) || [];
       const sortedSegmentProducts = sortSegment(segmentProducts, segment.sorters);
-
-      // Add up to segment size
-      const nonBottomProducts = sortedSegmentProducts.filter(product => !product.pushedToBottom);
-      const bottomProducts = sortedSegmentProducts.filter(product => product.pushedToBottom);
-      const productsToAdd = [...nonBottomProducts, ...bottomProducts].slice(0, segment.size);
-      productsToAdd.forEach(product => {
-        if (currentIndex < maxProducts) {
-          arraggedList.push({ ...product, sortOrder: currentIndex });
-          currentIndex++;
-        }
-      });
+      sortedSegmentProducts.filter(p => !p.pushedToBottom).forEach(p => nonPinnedOrdered.push(p));
+      sortedSegmentProducts.filter(p => p.pushedToBottom).forEach(p => globalBottom.push(p));
     }
+    const unassigned = productsBySegment.get('__unassigned__') || [];
+    unassigned.filter(p => !p.pushedToBottom).forEach(p => nonPinnedOrdered.push(p));
+    unassigned.filter(p => p.pushedToBottom).forEach(p => globalBottom.push(p));
+    globalBottom.forEach(p => nonPinnedOrdered.push(p));
 
-    // Step 6: Add unassigned products (if any space left)
-    const unassignedProducts = productsBySegment.get('__unassigned__') || [];
-    const unassignedNonBottom = unassignedProducts.filter(product => !product.pushedToBottom);
-    const unassignedBottom = unassignedProducts.filter(product => product.pushedToBottom);
-
-    [...unassignedNonBottom, ...unassignedBottom].forEach(product => {
-      if (currentIndex < maxProducts) {
-        arraggedList.push({ ...product, sortOrder: currentIndex });
-        currentIndex++;
-      }
+    // Step 3: Build slot map for pinned products (manualOrder = absolute position in final list)
+    const pinnedOrdered = getPinnedProductsOrdered(productsWithMetadata);
+    const pinnedBySlot = new Map<number, ProductWithMetadata>();
+    pinnedOrdered.forEach(product => {
+      let slot = Math.max(0, product.pinManualOrder ?? 0);
+      while (pinnedBySlot.has(slot)) slot++; // resolve collisions
+      pinnedBySlot.set(slot, product);
     });
+
+    // Step 4: Interleave: fill each position from pinned slot map or non-pinned list
+    const sortedPinnedSlots = [...pinnedBySlot.entries()].sort((a, b) => a[0] - b[0]);
+    let pinnedSlotIdx = 0;
+    let nonPinnedIdx = 0;
+    const arraggedList: ProductWithMetadata[] = [];
+
+    while (arraggedList.length < maxProducts) {
+      const nextPinnedSlot = pinnedSlotIdx < sortedPinnedSlots.length
+        ? sortedPinnedSlots[pinnedSlotIdx][0]
+        : Infinity;
+      const currentPosition = arraggedList.length;
+
+      if (nextPinnedSlot === currentPosition) {
+        arraggedList.push({ ...sortedPinnedSlots[pinnedSlotIdx][1], sortOrder: currentPosition });
+        pinnedSlotIdx++;
+      } else if (nonPinnedIdx < nonPinnedOrdered.length) {
+        arraggedList.push({ ...nonPinnedOrdered[nonPinnedIdx++], sortOrder: currentPosition });
+      } else if (pinnedSlotIdx < sortedPinnedSlots.length) {
+        // remaining pinned products beyond non-pinned list
+        arraggedList.push({ ...sortedPinnedSlots[pinnedSlotIdx][1], sortOrder: currentPosition });
+        pinnedSlotIdx++;
+      } else {
+        break;
+      }
+    }
 
     // Calculate statistics
     const statistics = {
