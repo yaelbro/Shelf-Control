@@ -228,8 +228,8 @@ const ShelfArrangementDashboard: FC = () => {
     availableCategories.forEach(category => {
       const hasValidParent = Boolean(
         category.parentId
-          && category.parentId !== category.id
-          && categoriesById.has(category.parentId),
+        && category.parentId !== category.id
+        && categoriesById.has(category.parentId),
       );
       const parentKey = hasValidParent ? category.parentId! : ROOT_CATEGORY_KEY;
       const currentGroup = grouped.get(parentKey) ?? [];
@@ -646,6 +646,7 @@ const ShelfArrangementDashboard: FC = () => {
             const queryResult = await (productsV3.queryProducts as unknown as (opts: unknown) => { find: () => Promise<unknown> })(options).find();
             const response = queryResult as { products?: StoreCatalogProduct[]; items?: StoreCatalogProduct[] };
             const items = response.products ?? response.items ?? [];
+            console.log('itemssssssssssssssssssss', items);
 
             items.forEach(product => {
               const byUnderscoreId = (product as { _id?: string; id?: string })._id;
@@ -692,8 +693,11 @@ const ShelfArrangementDashboard: FC = () => {
           fetchInventoryData(catalogProductsById, visibleCategoryItems),
           fetchTagsMap(),
         ]);
+        console.log("visibleCategoryItems", visibleCategoryItems);
 
-        const mappedProducts = visibleCategoryItems.map((item, index) => mapCategoryItemToProduct(
+        const mappedProducts = visibleCategoryItems
+          .filter(item => !item.catalogItemId || catalogProductsById.has(item.catalogItemId))
+          .map((item, index) => mapCategoryItemToProduct(
           item,
           item.catalogItemId ? catalogProductsById.get(item.catalogItemId) : undefined,
           pendingProductsCategoryName,
@@ -1022,96 +1026,96 @@ const ShelfArrangementDashboard: FC = () => {
     }));
   }, [updateConfig]);
 
-    // Pin/unpin a product at its current absolute display position
-    const togglePinInPlace = useCallback((product: Product, absolutePosition: number) => {
-      const alreadyPinned = config.pinnedProducts.some(p => p.variantId === product.variantId);
-      if (alreadyPinned) {
-        // Unpin: also clear from promoted list
-        setPromotedVariantIds(prev => prev.filter(id => id !== product.variantId));
-        setReleasedPinSlots(prev => ({
-          ...prev,
-          [product.variantId]: absolutePosition,
-        }));
-        updateConfig(prev => ({
-          ...prev,
-          pinnedProducts: unpinProduct(product.variantId, prev.pinnedProducts),
-        }));
-      } else {
-        // Pin at the exact absolute position
-        setPromotedVariantIds(prev => prev.filter(id => id !== product.variantId));
-        setReleasedPinSlots(prev => {
-          if (!(product.variantId in prev)) {
-            return prev;
-          }
+  // Pin/unpin a product at its current absolute display position
+  const togglePinInPlace = useCallback((product: Product, absolutePosition: number) => {
+    const alreadyPinned = config.pinnedProducts.some(p => p.variantId === product.variantId);
+    if (alreadyPinned) {
+      // Unpin: also clear from promoted list
+      setPromotedVariantIds(prev => prev.filter(id => id !== product.variantId));
+      setReleasedPinSlots(prev => ({
+        ...prev,
+        [product.variantId]: absolutePosition,
+      }));
+      updateConfig(prev => ({
+        ...prev,
+        pinnedProducts: unpinProduct(product.variantId, prev.pinnedProducts),
+      }));
+    } else {
+      // Pin at the exact absolute position
+      setPromotedVariantIds(prev => prev.filter(id => id !== product.variantId));
+      setReleasedPinSlots(prev => {
+        if (!(product.variantId in prev)) {
+          return prev;
+        }
 
-          const next = { ...prev };
-          delete next[product.variantId];
-          return next;
-        });
-        updateConfig(prev => ({
-          ...prev,
-          pinnedProducts: [
-            ...prev.pinnedProducts,
-            { productId: product.id, variantId: product.variantId, priority: 0, manualOrder: absolutePosition, pinnedAt: new Date() },
-          ],
-        }));
-      }
-    }, [config.pinnedProducts, updateConfig]);
-
-    // Promote: non-pinned → move to just after last pinned in display order (no pin).
-    // Pinned → move manualOrder one step up (swap with whatever is at manualOrder-1).
-    const moveUpInArrangement = useCallback((variantId: string) => {
-      const isPinned = config.pinnedProducts.some(pin => pin.variantId === variantId);
-      if (!isPinned) {
-        setPromotedVariantIds(prevPromoted => [
-          variantId,
-          ...prevPromoted.filter(id => id !== variantId),
-        ]);
-        return;
-      }
-
-      updateConfig(prev => {
-        const targetPin = prev.pinnedProducts.find(p => p.variantId === variantId);
-        if (!targetPin) return prev;
-        const currentSlot = targetPin.manualOrder ?? 0;
-        if (currentSlot <= 0) return prev;
-        const newSlot = currentSlot - 1;
-        // Swap with any pinned product sitting at newSlot
-        return {
-          ...prev,
-          pinnedProducts: prev.pinnedProducts.map(p => {
-            if (p.variantId === variantId) return { ...p, manualOrder: newSlot };
-            if ((p.manualOrder ?? 0) === newSlot) return { ...p, manualOrder: currentSlot };
-            return p;
-          }),
-        };
+        const next = { ...prev };
+        delete next[product.variantId];
+        return next;
       });
-    }, [config.pinnedProducts, updateConfig]);
+      updateConfig(prev => ({
+        ...prev,
+        pinnedProducts: [
+          ...prev.pinnedProducts,
+          { productId: product.id, variantId: product.variantId, priority: 0, manualOrder: absolutePosition, pinnedAt: new Date() },
+        ],
+      }));
+    }
+  }, [config.pinnedProducts, updateConfig]);
 
-    // Demote: non-pinned promoted → remove promotion.
-    // Pinned → move manualOrder one step down (swap with whatever is at manualOrder+1).
-    const moveDownInArrangement = useCallback((variantId: string) => {
-      const isPinned = config.pinnedProducts.some(pin => pin.variantId === variantId);
-      if (!isPinned) {
-        setPromotedVariantIds(prevPromoted => prevPromoted.filter(id => id !== variantId));
-        return;
-      }
+  // Promote: non-pinned → move to just after last pinned in display order (no pin).
+  // Pinned → move manualOrder one step up (swap with whatever is at manualOrder-1).
+  const moveUpInArrangement = useCallback((variantId: string) => {
+    const isPinned = config.pinnedProducts.some(pin => pin.variantId === variantId);
+    if (!isPinned) {
+      setPromotedVariantIds(prevPromoted => [
+        variantId,
+        ...prevPromoted.filter(id => id !== variantId),
+      ]);
+      return;
+    }
 
-      updateConfig(prev => {
-        const targetPin = prev.pinnedProducts.find(p => p.variantId === variantId);
-        if (!targetPin) return prev;
-        const currentSlot = targetPin.manualOrder ?? 0;
-        const newSlot = currentSlot + 1;
-        return {
-          ...prev,
-          pinnedProducts: prev.pinnedProducts.map(p => {
-            if (p.variantId === variantId) return { ...p, manualOrder: newSlot };
-            if ((p.manualOrder ?? 0) === newSlot) return { ...p, manualOrder: currentSlot };
-            return p;
-          }),
-        };
-      });
-    }, [config.pinnedProducts, updateConfig]);
+    updateConfig(prev => {
+      const targetPin = prev.pinnedProducts.find(p => p.variantId === variantId);
+      if (!targetPin) return prev;
+      const currentSlot = targetPin.manualOrder ?? 0;
+      if (currentSlot <= 0) return prev;
+      const newSlot = currentSlot - 1;
+      // Swap with any pinned product sitting at newSlot
+      return {
+        ...prev,
+        pinnedProducts: prev.pinnedProducts.map(p => {
+          if (p.variantId === variantId) return { ...p, manualOrder: newSlot };
+          if ((p.manualOrder ?? 0) === newSlot) return { ...p, manualOrder: currentSlot };
+          return p;
+        }),
+      };
+    });
+  }, [config.pinnedProducts, updateConfig]);
+
+  // Demote: non-pinned promoted → remove promotion.
+  // Pinned → move manualOrder one step down (swap with whatever is at manualOrder+1).
+  const moveDownInArrangement = useCallback((variantId: string) => {
+    const isPinned = config.pinnedProducts.some(pin => pin.variantId === variantId);
+    if (!isPinned) {
+      setPromotedVariantIds(prevPromoted => prevPromoted.filter(id => id !== variantId));
+      return;
+    }
+
+    updateConfig(prev => {
+      const targetPin = prev.pinnedProducts.find(p => p.variantId === variantId);
+      if (!targetPin) return prev;
+      const currentSlot = targetPin.manualOrder ?? 0;
+      const newSlot = currentSlot + 1;
+      return {
+        ...prev,
+        pinnedProducts: prev.pinnedProducts.map(p => {
+          if (p.variantId === variantId) return { ...p, manualOrder: newSlot };
+          if ((p.manualOrder ?? 0) === newSlot) return { ...p, manualOrder: currentSlot };
+          return p;
+        }),
+      };
+    });
+  }, [config.pinnedProducts, updateConfig]);
 
   const updatePinPriority = useCallback((variantId: string, priorityValue: string) => {
     const numeric = Number(priorityValue);
@@ -1798,9 +1802,9 @@ const ShelfArrangementDashboard: FC = () => {
                           ? t('טוען מוצרים...', 'Loading products...')
                           : isWixEntityId(config.categoryId) && lastLoadedCategoryId !== config.categoryId
                             ? t('קטגוריה נבחרה — לחץ "טען מוצרים" כדי להמשיך.', 'Category selected — click "Load products" to continue.')
-                          : categoryProducts === null
-                            ? t('בחר קטגוריה ולחץ "טען מוצרים" להתחלה.', 'Select a category and click "Load products" to begin.')
-                          : t(`${sourceProducts.length} מוצרים נטענו לקטגוריה.`, `${sourceProducts.length} products loaded for this category.`)
+                            : categoryProducts === null
+                              ? t('בחר קטגוריה ולחץ "טען מוצרים" להתחלה.', 'Select a category and click "Load products" to begin.')
+                              : t(`${sourceProducts.length} מוצרים נטענו לקטגוריה.`, `${sourceProducts.length} products loaded for this category.`)
                       )))}
                   </Text>
 
@@ -2173,237 +2177,237 @@ const ShelfArrangementDashboard: FC = () => {
               ) : null}
 
               {activeTab === 'pinning' ? (
-                  <Box direction="vertical" gap="SP4">
-                    <Card>
-                      <Box direction="vertical" gap="SP3" padding="SP4">
-                        <Text weight="bold">{t('3. סידור ונעיצת מוצרים', '3. Arrange and Pin Products')}</Text>
-                        <Text size="small" secondary>
-                          {t('כל המוצרים מוצגים לפי סדר הסידור הנוכחי. מוצר לא-נעוץ: "⬆ לראש" מקדם זמנית למעלה ללא נעיצה. "נעץ" נועל מוצר במקומו הנוכחי.', 'All products are shown in the current arrangement order. Non-pinned product: "⬆ To Top" promotes temporarily without pinning. "Pin" locks a product in its current position.')}
-                        </Text>
-                        <Text size="small" secondary>
-                          {livePreviewResult.statistics.pinnedProducts > 0
-                            ? t(`${livePreviewResult.statistics.pinnedProducts} מוצרים נעוצים · ${livePreviewResult.arrangedProducts.length} מוצרים בסה"כ`, `${livePreviewResult.statistics.pinnedProducts} pinned products · ${livePreviewResult.arrangedProducts.length} total products`)
-                            : t(`אין מוצרים נעוצים · ${livePreviewResult.arrangedProducts.length} מוצרים בסה"כ`, `No pinned products · ${livePreviewResult.arrangedProducts.length} total products`)}
-                        </Text>
-                        {config.pinnedProducts.length > livePreviewResult.statistics.pinnedProducts ? (
-                          <SectionHelper appearance="warning" title={t('נעיצות מוסתרות', 'Hidden pins')}>
-                            {t(
-                              `${config.pinnedProducts.length - livePreviewResult.statistics.pinnedProducts} מוצרים נעוצים מסוננים החוצה על ידי הפילטרים הפעילים ולא יופיעו בסידור המדף.`,
-                              `${config.pinnedProducts.length - livePreviewResult.statistics.pinnedProducts} pinned product(s) are excluded by active filters and won't appear in the shelf arrangement.`,
-                            )}
-                          </SectionHelper>
-                        ) : null}
-                        <Divider />
-                        {isLoadingProducts ? (
-                          <Box direction="vertical" gap="SP2">
-                            <Text size="small" secondary>{t('טוען מוצרים...', 'Loading products...')}</Text>
-                            {Array.from({ length: 3 }).map((_, idx) => (
-                              <div
-                                key={`pin-load-${idx}`}
-                                style={{
-                                  height: 80,
-                                  borderRadius: 8,
-                                  background: 'linear-gradient(90deg,#EEF0F3 25%,#F7F8FA 37%,#EEF0F3 63%)',
-                                  backgroundSize: '400% 100%',
-                                  animation: 'shelfShimmer 1.2s ease-in-out infinite',
-                                }}
-                              />
-                            ))}
-                          </Box>
-                        ) : livePreviewResult.arrangedProducts.length === 0 ? (
-                          <Text size="small" secondary>
-                            {t('טען מוצרים לקטגוריה כדי לנהל נעיצות.', 'Load products for category to manage pinning.')}
-                          </Text>
-                        ) : (
-                          <>
-                            <Box direction="horizontal" gap="SP2" verticalAlign="middle">
-                              <Button
-                                size="small"
-                                secondary
-                                disabled={pinningPage <= 1}
-                                onClick={() => setPinningPage(prev => prev - 1)}
-                              >
-                                {t('◀ הקודם', '◀ Previous')}
-                              </Button>
-                              <Text size="small">{t(`עמוד ${pinningPage} / ${pinningTotalPages}`, `Page ${pinningPage} / ${pinningTotalPages}`)}</Text>
-                              <Button
-                                size="small"
-                                secondary
-                                disabled={pinningPage >= pinningTotalPages}
-                                onClick={() => setPinningPage(prev => prev + 1)}
-                              >
-                                {t('הבא ▶', 'Next ▶')}
-                              </Button>
-                            </Box>
-
+                <Box direction="vertical" gap="SP4">
+                  <Card>
+                    <Box direction="vertical" gap="SP3" padding="SP4">
+                      <Text weight="bold">{t('3. סידור ונעיצת מוצרים', '3. Arrange and Pin Products')}</Text>
+                      <Text size="small" secondary>
+                        {t('כל המוצרים מוצגים לפי סדר הסידור הנוכחי. מוצר לא-נעוץ: "⬆ לראש" מקדם זמנית למעלה ללא נעיצה. "נעץ" נועל מוצר במקומו הנוכחי.', 'All products are shown in the current arrangement order. Non-pinned product: "⬆ To Top" promotes temporarily without pinning. "Pin" locks a product in its current position.')}
+                      </Text>
+                      <Text size="small" secondary>
+                        {livePreviewResult.statistics.pinnedProducts > 0
+                          ? t(`${livePreviewResult.statistics.pinnedProducts} מוצרים נעוצים · ${livePreviewResult.arrangedProducts.length} מוצרים בסה"כ`, `${livePreviewResult.statistics.pinnedProducts} pinned products · ${livePreviewResult.arrangedProducts.length} total products`)
+                          : t(`אין מוצרים נעוצים · ${livePreviewResult.arrangedProducts.length} מוצרים בסה"כ`, `No pinned products · ${livePreviewResult.arrangedProducts.length} total products`)}
+                      </Text>
+                      {config.pinnedProducts.length > livePreviewResult.statistics.pinnedProducts ? (
+                        <SectionHelper appearance="warning" title={t('נעיצות מוסתרות', 'Hidden pins')}>
+                          {t(
+                            `${config.pinnedProducts.length - livePreviewResult.statistics.pinnedProducts} מוצרים נעוצים מסוננים החוצה על ידי הפילטרים הפעילים ולא יופיעו בסידור המדף.`,
+                            `${config.pinnedProducts.length - livePreviewResult.statistics.pinnedProducts} pinned product(s) are excluded by active filters and won't appear in the shelf arrangement.`,
+                          )}
+                        </SectionHelper>
+                      ) : null}
+                      <Divider />
+                      {isLoadingProducts ? (
+                        <Box direction="vertical" gap="SP2">
+                          <Text size="small" secondary>{t('טוען מוצרים...', 'Loading products...')}</Text>
+                          {Array.from({ length: 3 }).map((_, idx) => (
                             <div
+                              key={`pin-load-${idx}`}
                               style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                                gap: 16,
+                                height: 80,
+                                borderRadius: 8,
+                                background: 'linear-gradient(90deg,#EEF0F3 25%,#F7F8FA 37%,#EEF0F3 63%)',
+                                backgroundSize: '400% 100%',
+                                animation: 'shelfShimmer 1.2s ease-in-out infinite',
                               }}
+                            />
+                          ))}
+                        </Box>
+                      ) : livePreviewResult.arrangedProducts.length === 0 ? (
+                        <Text size="small" secondary>
+                          {t('טען מוצרים לקטגוריה כדי לנהל נעיצות.', 'Load products for category to manage pinning.')}
+                        </Text>
+                      ) : (
+                        <>
+                          <Box direction="horizontal" gap="SP2" verticalAlign="middle">
+                            <Button
+                              size="small"
+                              secondary
+                              disabled={pinningPage <= 1}
+                              onClick={() => setPinningPage(prev => prev - 1)}
                             >
-                              {pagedPinningProducts.map((product, localIdx) => {
-                                const globalIdx = (pinningPage - 1) * PINNING_PAGE_SIZE + localIdx;
-                                const isPinned = product.isPinned;
-                                const pinnedPos = pinnedPreview.findIndex(p => p.variantId === product.variantId);
-                                const isFirstPinned = pinnedPos === 0;
-                                const isLastPinned = isPinned && pinnedPos === pinnedPreview.length - 1;
-                                const imageUrl = typeof product.attributes.imageUrl === 'string' ? product.attributes.imageUrl : '';
+                              {t('◀ הקודם', '◀ Previous')}
+                            </Button>
+                            <Text size="small">{t(`עמוד ${pinningPage} / ${pinningTotalPages}`, `Page ${pinningPage} / ${pinningTotalPages}`)}</Text>
+                            <Button
+                              size="small"
+                              secondary
+                              disabled={pinningPage >= pinningTotalPages}
+                              onClick={() => setPinningPage(prev => prev + 1)}
+                            >
+                              {t('הבא ▶', 'Next ▶')}
+                            </Button>
+                          </Box>
 
-                                return (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                              gap: 16,
+                            }}
+                          >
+                            {pagedPinningProducts.map((product, localIdx) => {
+                              const globalIdx = (pinningPage - 1) * PINNING_PAGE_SIZE + localIdx;
+                              const isPinned = product.isPinned;
+                              const pinnedPos = pinnedPreview.findIndex(p => p.variantId === product.variantId);
+                              const isFirstPinned = pinnedPos === 0;
+                              const isLastPinned = isPinned && pinnedPos === pinnedPreview.length - 1;
+                              const imageUrl = typeof product.attributes.imageUrl === 'string' ? product.attributes.imageUrl : '';
+
+                              return (
+                                <div
+                                  key={product.variantId}
+                                  draggable={isPinned}
+                                  onDragStart={isPinned ? e => { e.dataTransfer.effectAllowed = 'move'; setDraggedVariantId(product.variantId); } : undefined}
+                                  onDragOver={isPinned ? e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverVariantId(product.variantId); } : undefined}
+                                  onDragLeave={isPinned ? () => setDragOverVariantId(prev => prev === product.variantId ? null : prev) : undefined}
+                                  onDrop={isPinned ? e => { e.preventDefault(); onPinnedDrop(product.variantId); setDragOverVariantId(null); } : undefined}
+                                  onDragEnd={() => { setDraggedVariantId(null); setDragOverVariantId(null); }}
+                                  style={{
+                                    border: dragOverVariantId === product.variantId && draggedVariantId !== product.variantId
+                                      ? '2px dashed #3899EC'
+                                      : isPinned ? '2px solid #3899EC' : '1px solid #DFE5EB',
+                                    borderRadius: 8,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    overflow: 'hidden',
+                                    background: dragOverVariantId === product.variantId && draggedVariantId !== product.variantId ? '#EAF4FF' : '#fff',
+                                    opacity: draggedVariantId === product.variantId ? 0.4 : 1,
+                                    cursor: isPinned ? 'grab' : 'default',
+                                    transition: 'opacity 0.15s, border-color 0.15s',
+                                  }}
+                                >
+                                  {/* Index + pin badge */}
                                   <div
-                                    key={product.variantId}
-                                    draggable={isPinned}
-                                    onDragStart={isPinned ? e => { e.dataTransfer.effectAllowed = 'move'; setDraggedVariantId(product.variantId); } : undefined}
-                                    onDragOver={isPinned ? e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverVariantId(product.variantId); } : undefined}
-                                    onDragLeave={isPinned ? () => setDragOverVariantId(prev => prev === product.variantId ? null : prev) : undefined}
-                                    onDrop={isPinned ? e => { e.preventDefault(); onPinnedDrop(product.variantId); setDragOverVariantId(null); } : undefined}
-                                    onDragEnd={() => { setDraggedVariantId(null); setDragOverVariantId(null); }}
                                     style={{
-                                      border: dragOverVariantId === product.variantId && draggedVariantId !== product.variantId
-                                        ? '2px dashed #3899EC'
-                                        : isPinned ? '2px solid #3899EC' : '1px solid #DFE5EB',
-                                      borderRadius: 8,
                                       display: 'flex',
-                                      flexDirection: 'column',
-                                      overflow: 'hidden',
-                                      background: dragOverVariantId === product.variantId && draggedVariantId !== product.variantId ? '#EAF4FF' : '#fff',
-                                      opacity: draggedVariantId === product.variantId ? 0.4 : 1,
-                                      cursor: isPinned ? 'grab' : 'default',
-                                      transition: 'opacity 0.15s, border-color 0.15s',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '6px 10px',
+                                      background: isPinned ? '#EAF4FF' : '#F4F5F7',
+                                      borderBottom: '1px solid #DFE5EB',
                                     }}
                                   >
-                                    {/* Index + pin badge */}
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        padding: '6px 10px',
-                                        background: isPinned ? '#EAF4FF' : '#F4F5F7',
-                                        borderBottom: '1px solid #DFE5EB',
-                                      }}
-                                    >
-                                      <Text size="tiny" weight="bold">{isPinned ? `⠿ #${globalIdx + 1}` : `#${globalIdx + 1}`}</Text>
-                                      {isPinned ? <Badge skin="success">{t(`נעוץ #${pinnedPos + 1}`, `Pinned #${pinnedPos + 1}`)}</Badge> : null}
-                                    </div>
-
-                                    {/* Image */}
-                                    <div
-                                      style={{
-                                        width: '100%',
-                                        aspectRatio: '1 / 1',
-                                        overflow: 'hidden',
-                                        background: '#F4F5F7',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                      }}
-                                    >
-                                      {imageUrl ? (
-                                        <img
-                                          src={imageUrl}
-                                          alt={product.name}
-                                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
-                                      ) : (
-                                        <Text size="tiny" secondary>{t('ללא תמונה', 'No image')}</Text>
-                                      )}
-                                    </div>
-
-                                    {/* Details */}
-                                    <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                                      <Text size="small" weight="bold" style={{ wordBreak: 'break-word' }}>{product.name}</Text>
-                                      <Text size="tiny" secondary>{`Handle: ${typeof product.attributes.slug === 'string' ? product.attributes.slug : product.sku}`}</Text>
-                                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                        <Text size="tiny" weight="bold">{t(`מחיר: ${formatPrice(product.price)}`, `Price: ${formatPrice(product.price)}`)}</Text>
-                                        {product.priceBeforeDiscount ? (
-                                          <Text size="tiny" secondary style={{ textDecoration: 'line-through' }}>
-                                            {t(`מחיר קודם: ${formatPrice(product.priceBeforeDiscount)}`, `Previous price: ${formatPrice(product.priceBeforeDiscount)}`)}
-                                          </Text>
-                                        ) : null}
-                                        {product.priceMax ? (
-                                          <Text size="tiny" secondary>{t(`מחיר מקסימלי: ${formatPrice(product.priceMax)}`, `Max price: ${formatPrice(product.priceMax)}`)}</Text>
-                                        ) : null}
-                                      </div>
-                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        <Badge skin={product.inStock ? 'success' : 'danger'}>
-                                          {product.inStock ? t(`מלאי: ${product.inventory}`, `Stock: ${product.inventory}`) : t('אזל מהמלאי', 'Out of stock')}
-                                        </Badge>
-                                        {product.color ? <Badge skin="standard">{String(product.color)}</Badge> : null}
-                                      </div>
-                                      <Text size="tiny" secondary>
-                                        {t(
-                                          `וריאנטים במלאי: ${formatPercentage(Number(product.attributes.variantAvailabilityPercentage ?? 0))}`,
-                                          `In-stock variants: ${formatPercentage(Number(product.attributes.variantAvailabilityPercentage ?? 0))}`,
-                                        )}
-                                      </Text>
-                                    </div>
-
-                                    {/* Action buttons */}
-                                    <div
-                                      style={{
-                                        padding: '6px 10px',
-                                        display: 'flex',
-                                        gap: 4,
-                                        borderTop: '1px solid #DFE5EB',
-                                        justifyContent: 'space-between',
-                                      }}
-                                    >
-                                      <Button
-                                        size="tiny"
-                                        skin="standard"
-                                        disabled={isPinned && isFirstPinned}
-                                        onClick={() => moveUpInArrangement(product.variantId)}
-                                      >
-                                        {isPinned ? t('↑ קדם', '↑ Promote') : t('⬆ לראש', '⬆ To Top')}
-                                      </Button>
-                                      <Button
-                                        size="tiny"
-                                        skin="standard"
-                                        disabled={!isPinned}
-                                        onClick={() => moveDownInArrangement(product.variantId)}
-                                      >
-                                        {t('↓ הורד', '↓ Demote')}
-                                      </Button>
-                                      <Button
-                                        size="tiny"
-                                        skin={isPinned ? 'light' : 'standard'}
-                                        onClick={() => togglePinInPlace(product, globalIdx)}
-                                      >
-                                        {isPinned ? t('שחרר', 'Unpin') : t('נעץ', 'Pin')}
-                                      </Button>
-                                    </div>
+                                    <Text size="tiny" weight="bold">{isPinned ? `⠿ #${globalIdx + 1}` : `#${globalIdx + 1}`}</Text>
+                                    {isPinned ? <Badge skin="success">{t(`נעוץ #${pinnedPos + 1}`, `Pinned #${pinnedPos + 1}`)}</Badge> : null}
                                   </div>
-                                );
-                              })}
-                            </div>
 
-                            <Box direction="horizontal" gap="SP2">
-                              <Button
-                                size="small"
-                                secondary
-                                disabled={pinningPage <= 1}
-                                onClick={() => setPinningPage(prev => prev - 1)}
-                              >
-                                {t('◀ הקודם', '◀ Previous')}
-                              </Button>
-                              <Button
-                                size="small"
-                                secondary
-                                disabled={pinningPage >= pinningTotalPages}
-                                onClick={() => setPinningPage(prev => prev + 1)}
-                              >
-                                {t('הבא ▶', 'Next ▶')}
-                              </Button>
-                            </Box>
-                          </>
-                        )}
-                      </Box>
-                    </Card>
-                  </Box>
-                ) : null}
+                                  {/* Image */}
+                                  <div
+                                    style={{
+                                      width: '100%',
+                                      aspectRatio: '1 / 1',
+                                      overflow: 'hidden',
+                                      background: '#F4F5F7',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    {imageUrl ? (
+                                      <img
+                                        src={imageUrl}
+                                        alt={product.name}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                      />
+                                    ) : (
+                                      <Text size="tiny" secondary>{t('ללא תמונה', 'No image')}</Text>
+                                    )}
+                                  </div>
+
+                                  {/* Details */}
+                                  <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                                    <Text size="small" weight="bold" style={{ wordBreak: 'break-word' }}>{product.name}</Text>
+                                    <Text size="tiny" secondary>{`Handle: ${typeof product.attributes.slug === 'string' ? product.attributes.slug : product.sku}`}</Text>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                      <Text size="tiny" weight="bold">{t(`מחיר: ${formatPrice(product.price)}`, `Price: ${formatPrice(product.price)}`)}</Text>
+                                      {product.priceBeforeDiscount ? (
+                                        <Text size="tiny" secondary style={{ textDecoration: 'line-through' }}>
+                                          {t(`מחיר קודם: ${formatPrice(product.priceBeforeDiscount)}`, `Previous price: ${formatPrice(product.priceBeforeDiscount)}`)}
+                                        </Text>
+                                      ) : null}
+                                      {product.priceMax ? (
+                                        <Text size="tiny" secondary>{t(`מחיר מקסימלי: ${formatPrice(product.priceMax)}`, `Max price: ${formatPrice(product.priceMax)}`)}</Text>
+                                      ) : null}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                      <Badge skin={product.inStock ? 'success' : 'danger'}>
+                                        {product.inStock ? t(`מלאי: ${product.inventory}`, `Stock: ${product.inventory}`) : t('אזל מהמלאי', 'Out of stock')}
+                                      </Badge>
+                                      {product.color ? <Badge skin="standard">{String(product.color)}</Badge> : null}
+                                    </div>
+                                    <Text size="tiny" secondary>
+                                      {t(
+                                        `וריאנטים במלאי: ${formatPercentage(Number(product.attributes.variantAvailabilityPercentage ?? 0))}`,
+                                        `In-stock variants: ${formatPercentage(Number(product.attributes.variantAvailabilityPercentage ?? 0))}`,
+                                      )}
+                                    </Text>
+                                  </div>
+
+                                  {/* Action buttons */}
+                                  <div
+                                    style={{
+                                      padding: '6px 10px',
+                                      display: 'flex',
+                                      gap: 4,
+                                      borderTop: '1px solid #DFE5EB',
+                                      justifyContent: 'space-between',
+                                    }}
+                                  >
+                                    <Button
+                                      size="tiny"
+                                      skin="standard"
+                                      disabled={isPinned && isFirstPinned}
+                                      onClick={() => moveUpInArrangement(product.variantId)}
+                                    >
+                                      {isPinned ? t('↑ קדם', '↑ Promote') : t('⬆ לראש', '⬆ To Top')}
+                                    </Button>
+                                    <Button
+                                      size="tiny"
+                                      skin="standard"
+                                      disabled={!isPinned}
+                                      onClick={() => moveDownInArrangement(product.variantId)}
+                                    >
+                                      {t('↓ הורד', '↓ Demote')}
+                                    </Button>
+                                    <Button
+                                      size="tiny"
+                                      skin={isPinned ? 'light' : 'standard'}
+                                      onClick={() => togglePinInPlace(product, globalIdx)}
+                                    >
+                                      {isPinned ? t('שחרר', 'Unpin') : t('נעץ', 'Pin')}
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <Box direction="horizontal" gap="SP2">
+                            <Button
+                              size="small"
+                              secondary
+                              disabled={pinningPage <= 1}
+                              onClick={() => setPinningPage(prev => prev - 1)}
+                            >
+                              {t('◀ הקודם', '◀ Previous')}
+                            </Button>
+                            <Button
+                              size="small"
+                              secondary
+                              disabled={pinningPage >= pinningTotalPages}
+                              onClick={() => setPinningPage(prev => prev + 1)}
+                            >
+                              {t('הבא ▶', 'Next ▶')}
+                            </Button>
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  </Card>
+                </Box>
+              ) : null}
 
               {activeTab === 'segments' ? (
                 <Box direction="vertical" gap="SP4">

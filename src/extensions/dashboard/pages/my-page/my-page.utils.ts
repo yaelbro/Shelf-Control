@@ -625,6 +625,9 @@ export function mapCategoryItemToProduct(
   inventoryData?: Map<string, number>,
   tagsMap?: Map<string, string>,
 ): Product {
+  console.log('item',item);
+  console.log('catalogPRoduct',catalogProduct);
+  
   const resolvedName = typeof catalogProduct?.name === 'string'
     ? catalogProduct.name
     : ((catalogProduct as unknown as { name?: { original?: string; value?: string } })?.name?.original
